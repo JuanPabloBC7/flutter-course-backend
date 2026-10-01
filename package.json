@@ -1,0 +1,14 @@
+{
+  "name": "flutter_course_backend_js",
+  "version": "1.0.0",
+  "description": "Backend mínimo en Node.js + Express",
+  "main": "index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "dependencies": {
+    "express": "4.21.2"
+  }
+}
