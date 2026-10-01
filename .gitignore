@@ -219,3 +219,8 @@ __marimo__/
 
 # Firebase Admin SDK - credenciales del service account (NO commitear)
 serviceAccountKey.json
+
+# Dependency directories
+node_modules/
+
+package-lock.json
