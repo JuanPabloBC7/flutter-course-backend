@@ -5,9 +5,14 @@
  * marca y fecha de vencimiento. NO comprueban que la tarjeta exista, esté
  * emitida, pertenezca al usuario o tenga crédito disponible. Para eso se
  * necesitaría una integración autorizada con un proveedor de pagos o emisor.
+ *
+ * Incluye además el cálculo de la huella criptográfica (fingerprint) de la
+ * tarjeta, pues depende directamente de la normalización de la numeración.
  */
 
-import type { CardBrand } from '../types/credit-card';
+import { createHmac } from 'node:crypto';
+import { env } from '../config/env';
+import type { CardBrand } from './types';
 
 /** Resultado de una validación con posible motivo de fallo. */
 export interface ValidationResult {
@@ -214,4 +219,24 @@ export function validateCvv(cvv: string, brand: CardBrand): ValidationResult {
 export function extractLast4(cardNumber: string): string {
   const digits = normalizeCardNumber(cardNumber);
   return digits.slice(-4);
+}
+
+/**
+ * Genera la huella HMAC-SHA256 del PAN normalizado.
+ *
+ * Objetivo: poder detectar la MISMA tarjeta (para evitar duplicados) sin
+ * almacenar el PAN. Se usa HMAC-SHA256 con un secreto de servidor
+ * (CARD_FINGERPRINT_SECRET), no un hash simple del número. El PAN solo vive
+ * en memoria el tiempo necesario para calcular la huella.
+ *
+ * LIMITACIÓN: esto NO sustituye la tokenización de un proveedor de pagos ni
+ * los controles PCI DSS. Es una referencia interna para correlación local.
+ * Una integración real debe delegar el manejo del PAN a un proveedor
+ * certificado y guardar únicamente el token que este devuelva.
+ */
+export function computeCardFingerprint(cardNumber: string): string {
+  const normalized = normalizeCardNumber(cardNumber);
+  return createHmac('sha256', env.CARD_FINGERPRINT_SECRET)
+    .update(normalized)
+    .digest('hex');
 }

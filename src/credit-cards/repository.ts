@@ -6,11 +6,7 @@
  */
 
 import { query } from '../database/pool';
-import type {
-  CardBrand,
-  CardStatus,
-  CreditCardRow,
-} from '../types/credit-card';
+import type { CardBrand, CardStatus, CreditCardRow } from './types';
 
 /** Datos para insertar una fila (ya validados y sin PAN/CVV). */
 export interface InsertCardData {

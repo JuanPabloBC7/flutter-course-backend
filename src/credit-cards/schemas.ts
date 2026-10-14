@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { CARD_STATUSES } from '../types/credit-card';
+import { CARD_STATUSES } from './types';
 
 /** UUID v4 válido para el parámetro :id. */
 export const cardIdParamSchema = z.object({

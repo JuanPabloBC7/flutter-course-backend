@@ -6,7 +6,7 @@
 import cors, { type CorsOptions } from 'cors';
 import express, { type Application } from 'express';
 import { getCorsOrigins } from './config/env';
-import { creditCardRouter } from './routes/credit-card-routes';
+import { creditCardRouter } from './credit-cards/routes';
 import { errorHandler, notFoundHandler } from './middleware/error-handler';
 
 export function createApp(): Application {

@@ -9,20 +9,20 @@ import {
   ValidationError,
   type ErrorDetail,
 } from '../errors/app-error';
-import * as repo from '../repositories/credit-card-repository';
-import { computeCardFingerprint } from '../security/card-fingerprint';
+import {
+  computeCardFingerprint,
+  extractLast4,
+  validateCardNumber,
+  validateCvv,
+  validateExpiration,
+} from './card-validator';
+import * as repo from './repository';
 import type {
   CreateCardInput,
   CreditCardPublic,
   CreditCardRow,
   UpdateCardInput,
-} from '../types/credit-card';
-import {
-  extractLast4,
-  validateCardNumber,
-  validateCvv,
-  validateExpiration,
-} from '../validation/card-validator';
+} from './types';
 
 /**
  * Mapea una fila de BD a la representación pública.

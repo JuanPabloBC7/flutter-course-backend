@@ -14,7 +14,7 @@ import {
   validateCardNumber,
   validateCvv,
   validateExpiration,
-} from '../src/validation/card-validator';
+} from '../src/credit-cards/card-validator';
 
 describe('normalizeCardNumber', () => {
   it('elimina espacios y guiones', () => {
