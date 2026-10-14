@@ -13,7 +13,7 @@
 
 import request from 'supertest';
 import type { Application } from 'express';
-import { createApp } from '../src/app';
+import { createApp } from '../../app';
 import {
   isDatabaseAvailable,
   setupSchema,
@@ -308,7 +308,7 @@ describe('Protección de datos sensibles', () => {
   dbIt('20. el CVV no se persiste en la base de datos', async () => {
     await createCard();
     // Inspeccionar columnas de la tabla: no debe existir ninguna de cvv
-    const { query } = await import('../src/database/pool');
+    const { query } = await import('../database/pool');
     const cols = await query<{ column_name: string }>(
       `SELECT column_name FROM information_schema.columns
        WHERE table_name = 'credit_cards'`,

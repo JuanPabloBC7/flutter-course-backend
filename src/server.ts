@@ -4,8 +4,8 @@
 
 import type { Server } from 'node:http';
 import { createApp } from './app';
-import { env } from './config/env';
-import { closePool } from './database/pool';
+import { env } from './credit-cards/config/env';
+import { closePool } from './credit-cards/database/pool';
 
 const app = createApp();
 

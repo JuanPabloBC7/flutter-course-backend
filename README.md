@@ -1,164 +1,116 @@
 # flutter_course_backend
 
-API REST para la gestión de tarjetas de crédito. Permite listar, consultar,
-crear, actualizar y eliminar lógicamente tarjetas, con validación de numeración
-(Luhn), marca, fecha de vencimiento y CVV.
+Backend de aprendizaje con **dos ejemplos independientes** que corren sobre el
+**mismo servidor Express**. No hay que levantar procesos distintos: un único
+`npm run dev` (o `npm start`) expone ambos bajo `/api/v1`:
 
-> Ámbito: administración de tarjetas y sus límites de crédito. **No** procesa
-> pagos ni cobros reales.
+- **Credit Cards** (`/api/v1/credit-cards`): API REST para gestionar tarjetas de
+  crédito con validación de numeración (Luhn), marca, vencimiento y CVV.
+- **Workers** (`/api/v1/workers`): demostración del **Event Loop** de Node.js y
+  de los **worker_threads** (cómo una carga de CPU bloquea el hilo principal
+  frente a cómo delegarla a un hilo aparte lo mantiene libre).
 
-## Stack tecnológico
-
-| Componente     | Elección            | Motivo                                              |
-|----------------|---------------------|-----------------------------------------------------|
-| Runtime        | Node.js >= 20       | LTS, soporte nativo de `node:crypto`.               |
-| Lenguaje       | TypeScript 5 strict | Tipado estricto, `any` evitado.                     |
-| Framework HTTP | Express 4           | Simple, maduro, fácil de probar.                    |
-| Base de datos  | PostgreSQL + `pg`   | Consultas parametrizadas, sin ORM pesado.           |
-| Validación     | zod                 | Validación declarativa y segura de entradas.        |
-| Pruebas        | Jest + supertest    | Unitarias (validación) e integración (endpoints).   |
-
-Se eligió `pg` con SQL parametrizado en lugar de un ORM para mantener el proyecto
-ligero, transparente y fácil de auditar. La lógica de negocio (service) está
-separada de la persistencia (repository).
+> Ámbito del ejemplo de tarjetas: administración de tarjetas y sus límites.
+> **No** procesa pagos ni cobros reales.
 
 ## Arquitectura
 
 ```
 src/
-├── config/        Validación y carga de variables de entorno (zod)
-├── database/      Pool de conexiones, migraciones y runner
-├── types/         Interfaces y tipos del dominio
-├── validation/    Validación de tarjetas (Luhn, marca, fecha, CVV) + esquemas zod
-├── security/      Huella criptográfica (HMAC) de tarjetas
-├── repositories/  Acceso a PostgreSQL (SQL parametrizado)
-├── services/      Lógica de negocio
-├── controllers/   Manejo de request/response HTTP
-├── middleware/    Validación y manejo centralizado de errores
-├── routes/        Definición de endpoints (/api/v1)
-├── app.ts         Construcción de la app Express (exportable para tests)
-└── server.ts      Arranque del servidor + apagado ordenado
-tests/             Pruebas unitarias y de integración
+├── credit-cards/            Ejemplo 1: gestión de tarjetas
+│   ├── config/              Validación y carga de variables de entorno (zod)
+│   ├── credit-card/         Dominio: validación, tipos, esquemas, repo, servicio, rutas
+│   ├── database/            Pool de conexiones, migraciones y runner
+│   ├── errors/              Jerarquía de errores y formato uniforme
+│   ├── middleware/          Validación y manejo centralizado de errores
+│   ├── test/                Pruebas unitarias y de integración
+│   └── docs/                Ejemplos curl y colección Postman
+├── workers/                 Ejemplo 2: Event Loop + worker_threads
+│   ├── heavy-cpu-worker/    Worker thread + constante de carga compartida
+│   └── endpoints/           Router de /api/v1/workers
+├── app.ts                   App Express compartida (monta ambos routers)
+└── server.ts                Arranque del servidor + apagado ordenado
 ```
+
+Ambos ejemplos comparten `app.ts`/`server.ts`: un solo servidor, dos routers
+montados en prefijos distintos.
 
 ## Requisitos
 
 - Node.js 20 o superior.
-- PostgreSQL 13 o superior (local o remoto).
+- PostgreSQL 13 o superior (solo necesario para el ejemplo de **credit-cards**).
 
-> Verifica tu entorno con `node --version` y `psql --version`.
-
-## Instalación
+## Cómo ejecutar
 
 ```bash
-cd credit-cards-api
 npm install
+cp .env.example .env        # ajusta los valores (ver tabla abajo)
+npm run migrate             # aplica migraciones (requiere PostgreSQL)
+
+npm run dev                 # desarrollo con recarga automática
+# o en producción:
+npm run build && npm start
 ```
 
-## Configuración
-
-Copia el archivo de ejemplo y ajusta los valores:
-
-```bash
-cp .env.example .env
-```
-
-Variables principales (ver `.env.example` para la lista completa):
-
-| Variable                  | Descripción                                        |
-|---------------------------|----------------------------------------------------|
-| `PORT`                    | Puerto HTTP (por defecto 4000).                    |
-| `PGHOST` … `PGDATABASE`   | Conexión a PostgreSQL.                             |
-| `CORS_ORIGINS`            | Orígenes permitidos, separados por coma. Vacío = CORS deshabilitado. |
-| `CARD_FINGERPRINT_SECRET` | Secreto (>= 16 chars) para la huella HMAC de tarjetas. |
-
-La aplicación **valida la configuración al arrancar** y no inicia si falta o es
-inválida alguna variable.
-
-## Base de datos y migraciones
-
-Crea las bases de datos (desarrollo y pruebas):
-
-```bash
-createdb credit_cards
-createdb credit_cards_test
-```
-
-Aplica las migraciones:
-
-```bash
-npm run migrate
-```
-
-El runner es idempotente y registra lo aplicado en la tabla `schema_migrations`.
-
-### Esquema
-
-Tabla `credit_cards`:
-
-| Columna            | Tipo             | Notas                                       |
-|--------------------|------------------|---------------------------------------------|
-| `id`               | UUID (PK)        | `gen_random_uuid()`.                        |
-| `user_id`          | TEXT NOT NULL    | Identificador del propietario.              |
-| `card_fingerprint` | TEXT NOT NULL    | HMAC-SHA256 del PAN (sin guardar el PAN).   |
-| `last4`            | CHAR(4) NOT NULL | Últimos 4 dígitos.                          |
-| `brand`            | enum `card_brand`| `VISA` \| `MASTERCARD`.                     |
-| `credit_limit`     | NUMERIC(14,2)    | `CHECK >= 0`.                               |
-| `expiration_month` | SMALLINT         | `CHECK 1..12`.                              |
-| `expiration_year`  | SMALLINT         | `CHECK 1970..2100`.                         |
-| `status`           | enum `card_status`| `ACTIVE` \| `BLOCKED` \| `EXPIRED`.        |
-| `created_at`       | TIMESTAMPTZ      | `now()`.                                    |
-| `updated_at`       | TIMESTAMPTZ      | `now()`.                                    |
-| `deleted_at`       | TIMESTAMPTZ NULL | Soft delete. NULL = vigente.                |
-
-Índices: parcial por `user_id` para tarjetas vigentes y único parcial
-`(user_id, card_fingerprint)` sobre filas no eliminadas, para evitar duplicados.
-
-### Sobre `userId` (no existe tabla de usuarios)
-
-Este proyecto se creó de forma aislada y **no hay un sistema de usuarios en el
-workspace**. Por eso `user_id` es un `TEXT` que recibe el identificador tal cual
-lo envía el cliente. La API **no comprueba** que el usuario exista ni valida su
-identidad. Si en el futuro se integra una tabla `users`, debe convertirse en una
-clave foránea real (`REFERENCES users(id)`) y añadirse la validación
-correspondiente.
-
-## Ejecución
-
-Modo desarrollo (recarga automática):
-
-```bash
-npm run dev
-```
-
-Compilar y ejecutar en producción:
-
-```bash
-npm run build
-npm start
-```
-
-Comprobación rápida:
+Comprobación rápida del servidor:
 
 ```bash
 curl http://localhost:4000/health
 # -> {"status":"ok"}
 ```
 
-## Endpoints
+Variables de entorno principales (ver `.env.example` para la lista completa):
 
-Prefijo: `/api/v1`. Las respuestas exitosas usan el envoltorio `{ "data": ... }`.
+| Variable                  | Descripción                                              |
+|---------------------------|----------------------------------------------------------|
+| `PORT`                    | Puerto HTTP (por defecto 4000).                          |
+| `PGHOST` … `PGDATABASE`   | Conexión a PostgreSQL (ejemplo de credit-cards).         |
+| `CORS_ORIGINS`            | Orígenes permitidos, separados por coma. Vacío = CORS off.|
+| `CARD_FINGERPRINT_SECRET` | Secreto (>= 16 chars) para la huella HMAC de tarjetas.   |
 
-| Método | Ruta                     | Descripción                        | Éxito |
-|--------|--------------------------|------------------------------------|-------|
-| GET    | `/credit-cards`          | Lista tarjetas activas.            | 200   |
-| GET    | `/credit-cards/:id`      | Obtiene una tarjeta por id.        | 200   |
-| POST   | `/credit-cards`          | Crea una tarjeta.                  | 201   |
-| PATCH  | `/credit-cards/:id`      | Actualiza `creditLimit`/`status`.  | 200   |
-| DELETE | `/credit-cards/:id`      | Eliminación lógica.                | 204   |
+La aplicación **valida la configuración al arrancar** y no inicia si falta o es
+inválida alguna variable.
+
+---
+
+## Ejemplo 1: Credit Cards
+
+API REST para listar, consultar, crear, actualizar y eliminar lógicamente
+tarjetas. La marca se detecta a partir de la numeración; el CVV y el PAN nunca
+se almacenan.
+
+### Stack
+
+Node.js 20 · TypeScript 5 (strict) · Express 4 · PostgreSQL + `pg` (SQL
+parametrizado, sin ORM) · zod (validación) · Jest + supertest (pruebas).
+
+### Base de datos y migraciones
+
+```bash
+createdb credit_cards
+createdb credit_cards_test
+npm run migrate
+```
+
+El runner es idempotente y registra lo aplicado en `schema_migrations`. La tabla
+`credit_cards` guarda solo `last4` + una **huella HMAC-SHA256**
+(`card_fingerprint`), nunca el PAN; usa soft delete (`deleted_at`) y un índice
+único parcial `(user_id, card_fingerprint)` para evitar duplicados vigentes.
+
+### Endpoints (`/api/v1/credit-cards`)
+
+Las respuestas exitosas usan el envoltorio `{ "data": ... }`.
+
+| Método | Ruta                | Descripción                        | Éxito |
+|--------|---------------------|------------------------------------|-------|
+| GET    | `/credit-cards`     | Lista tarjetas activas.            | 200   |
+| GET    | `/credit-cards/:id` | Obtiene una tarjeta por id (UUID). | 200   |
+| POST   | `/credit-cards`     | Crea una tarjeta.                  | 201   |
+| PATCH  | `/credit-cards/:id` | Actualiza `creditLimit`/`status`.  | 200   |
+| DELETE | `/credit-cards/:id` | Eliminación lógica.                | 204   |
 
 Códigos de error: `400` (entrada inválida), `404` (no existe/eliminada),
-`409` (duplicado), `500` (error interno). Formato uniforme:
+`409` (duplicado), `500` (interno). Formato uniforme:
 
 ```json
 {
@@ -172,85 +124,93 @@ Códigos de error: `400` (entrada inválida), `404` (no existe/eliminada),
 }
 ```
 
-Ejemplos de solicitudes: ver [`docs/curl-examples.md`](docs/curl-examples.md) y
-la colección de Postman en [`docs/postman_collection.json`](docs/postman_collection.json).
+Más ejemplos: [`src/credit-cards/docs/curl-examples.md`](src/credit-cards/docs/curl-examples.md)
+y la colección de Postman en
+[`src/credit-cards/docs/postman_collection.json`](src/credit-cards/docs/postman_collection.json).
 
-## Validación de tarjetas
+### Validación
 
-El módulo `src/validation/card-validator.ts` implementa:
+El módulo `src/credit-cards/credit-card/card-validator.ts` cubre: limpieza de
+separadores, **Luhn**, detección de **marca** (VISA, Mastercard, American
+Express, Discover), longitudes por marca, **vencimiento** (válida hasta el
+último día del mes) y **CVV** por marca. Estas validaciones comprueban formato,
+numeración, checksum, marca y fecha; **no** verifican que la tarjeta exista,
+esté emitida o tenga crédito disponible.
 
-- Limpieza de espacios y guiones; rechazo de caracteres no numéricos.
-- Algoritmo de **Luhn**.
-- Detección de **marca** centralizada: VISA (prefijo `4`) y Mastercard
-  (`51–55` y `2221–2720`).
-- Longitudes por marca (VISA: 13/16/19; Mastercard: 16).
-- **Vencimiento**: mes 1–12, válida hasta el último día del mes de vencimiento.
-- **CVV**: numérico, 3 dígitos para Visa/Mastercard.
+### Seguridad (notas)
 
-### Alcance real de la validación
-
-Estas validaciones comprueban **únicamente formato, numeración, checksum, marca
-y fecha**. **No** prueban que la tarjeta exista, esté emitida, pertenezca al
-usuario, esté activa en la red de pagos o tenga crédito disponible. Para eso se
-requiere una integración autorizada con un proveedor de pagos o el emisor.
-
-## Protección de datos sensibles
-
-- El **número completo (PAN) nunca se almacena**: solo se guardan `last4` y una
-  **huella HMAC-SHA256** (`card_fingerprint`) para detectar duplicados.
+- El **PAN nunca se almacena**: solo `last4` y la huella HMAC.
 - El **CVV nunca se persiste** ni se devuelve; solo vive en memoria durante la
-  validación de la solicitud.
-- Las respuestas **no exponen** PAN, CVV ni la huella.
-- Los logs y mensajes de error **no incluyen** datos sensibles ni SQL interno.
-- Consultas **parametrizadas** en todo el acceso a datos.
-- Límite de tamaño del cuerpo de la solicitud (10 KB).
-- CORS **explícito**: solo los orígenes configurados; deshabilitado si la lista
-  está vacía.
+  validación.
+- SQL **parametrizado**, límite de cuerpo (10 KB), CORS explícito y soft delete.
+- La huella HMAC es una referencia interna, **no** sustituye la tokenización ni
+  implica cumplimiento PCI DSS. Los endpoints **no** incluyen autenticación: hay
+  que protegerlos antes de un uso real.
 
-### Aviso PCI DSS
-
-La huella HMAC es una **referencia interna** para correlación local; **no** es
-tokenización de un proveedor de pagos ni implica cumplimiento PCI DSS. Una
-integración real con tarjetas de pago debe delegar el manejo del PAN a un
-proveedor certificado (que devuelve un token) y considerar los requisitos
-**PCI DSS** y las responsabilidades del proveedor.
-
-### Autenticación
-
-Por simplicidad, los endpoints **no incluyen autenticación/autorización**. Antes
-de exponerlos en un entorno real deben protegerse con autenticación y
-autorización (por ejemplo, verificando que el usuario sea dueño de la tarjeta).
-
-## Pruebas
+### Cómo probar
 
 ```bash
-# Solo unitarias (no requieren base de datos)
-npm run test:unit
-
-# Todas (unitarias + integración)
-NODE_ENV=test PGDATABASE=credit_cards_test npm test
+npm run test:unit   # unitarias de validación (no requieren base de datos)
+NODE_ENV=test PGDATABASE=credit_cards_test npm test   # + integración
 ```
 
-- **Unitarias** (`tests/card-validator.test.ts`): Luhn, marca (VISA y Mastercard
-  en ambos rangos), vencimiento y CVV. No requieren base de datos.
-- **Integración** (`tests/credit-cards.integration.test.ts`): recorren los cinco
-  endpoints con `supertest` contra una base de datos de **pruebas** aislada.
-  Si no hay base de datos accesible, **la suite se omite con un aviso** (no se
-  simulan resultados exitosos).
+La suite de integración recorre los cinco endpoints con `supertest`. Si no hay
+PostgreSQL accesible, **se omite con un aviso** (no simula resultados).
 
-### Resultados en este entorno
+---
 
-En la máquina donde se desarrolló **no hay PostgreSQL instalado**, por lo que:
+## Ejemplo 2: Workers
 
-- `npm run test:unit` → **23/23 pruebas unitarias OK**.
-- La suite de integración **se omitió** (sin base de datos). El código está
-  completo y listo para ejecutarse: instala PostgreSQL, crea `credit_cards_test`,
-  corre `npm run migrate` y luego `NODE_ENV=test PGDATABASE=credit_cards_test npm test`.
+Demuestra cómo trabaja el **Event Loop** de Node.js y para qué sirven los
+**worker_threads**. La idea: una carga de CPU sincrónica bloquea todo el
+servidor, mientras que la misma carga dentro de un worker deja el hilo principal
+libre para seguir respondiendo.
 
-## Limitaciones pendientes para un despliegue real
+El bucle pesado usa una constante compartida `HEAVY_ITERATIONS`
+(`src/workers/heavy-cpu-worker/worker-config.ts`): un bucle **deliberadamente
+pesado pero finito**, pensado solo para notar el bloqueo sin colgar el proceso.
+
+### Rutas (`/api/v1/workers`)
+
+| Método | Ruta                 | Qué hace                                                       |
+|--------|----------------------|----------------------------------------------------------------|
+| GET    | `/`                  | Saludo: `{ "message": "Hello World" }`.                        |
+| GET    | `/health`            | Salud del ejemplo: `{ "status": "ok", "active": true }`.       |
+| GET    | `/fast`              | Respuesta inmediata; "termómetro" del Event Loop.              |
+| GET    | `/slow-io`           | I/O no bloqueante (~4 s con `setTimeout`); el Event Loop sigue libre. |
+| GET    | `/heavy-cpu-block`   | CPU pesada **en el hilo principal**: bloquea el Event Loop.    |
+| GET    | `/heavy-cpu-worker`  | La misma carga en un **worker thread**: el hilo principal sigue libre. |
+
+### Qué observar
+
+Abre dos terminales. Mientras una petición pesada corre, prueba `/fast` en la otra:
+
+- Durante **`/heavy-cpu-block`**, `/fast` queda **congelada** hasta que termina
+  el bucle (el Event Loop está secuestrado).
+- Durante **`/heavy-cpu-worker`**, `/fast` **responde al instante**: el bucle
+  corre en otro hilo y el Event Loop del hilo principal sigue libre.
+
+### Ejemplos curl
+
+```bash
+curl http://localhost:4000/api/v1/workers
+curl http://localhost:4000/api/v1/workers/health
+curl http://localhost:4000/api/v1/workers/fast
+curl http://localhost:4000/api/v1/workers/slow-io
+curl http://localhost:4000/api/v1/workers/heavy-cpu-block
+curl http://localhost:4000/api/v1/workers/heavy-cpu-worker
+```
+
+En `npm run dev` el worker se transpila al vuelo con `ts-node`; en producción
+(`npm start`) usa el `.js` ya compilado en `dist/`. Funciona en ambos modos sin
+pasos extra.
+
+---
+
+## Limitaciones pendientes para un despliegue real (credit-cards)
 
 - Integrar autenticación y autorización.
 - Sustituir la huella HMAC por tokenización de un proveedor de pagos certificado.
 - Añadir una tabla `users` real y clave foránea para `user_id`.
-- Rate limiting, observabilidad (logs estructurados, métricas) y auditoría.
-- Revisión de cumplimiento PCI DSS según el alcance del manejo de tarjetas.
+- Rate limiting, observabilidad y auditoría.
+- Revisión de cumplimiento PCI DSS según el alcance.

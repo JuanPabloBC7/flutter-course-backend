@@ -6,8 +6,8 @@
  * una base de datos aislada de pruebas.
  */
 
-import { pool, query } from '../../src/database/pool';
-import { runMigrations } from '../../src/database/migrate';
+import { pool, query } from '../../database/pool';
+import { runMigrations } from '../../database/migrate';
 
 /** Verifica si la base de datos de pruebas está accesible. */
 export async function isDatabaseAvailable(): Promise<boolean> {
