@@ -145,3 +145,6 @@ dist
 
 # Firebase Admin SDK - credenciales del service account (NO commitear)
 serviceAccountKey.json
+
+# Artefactos de los workflows de agentes (planes, verificaciones, revisiones)
+.agents/
