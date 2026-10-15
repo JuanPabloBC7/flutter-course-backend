@@ -17,6 +17,7 @@
     "nodes:test": "ts-node src/scaling-nodes/test.ts",
     "ram:seed": "ts-node src/ram-memory/seed.ts",
     "ram:pipeline": "ts-node src/ram-memory/pipeline.ts",
+    "queue:demo": "ts-node src/queues/demo.ts",
     "test": "jest --runInBand",
     "test:unit": "jest --runInBand card-validator",
     "typecheck": "tsc --noEmit"

@@ -19,6 +19,9 @@ Además hay dos ejemplos que **no** corren sobre Express y se ejecutan aparte:
 - **RAM Memory** (`src/ram-memory/`): procesamiento de archivos gigantes con
   **streams** y **backpressure**, manteniendo el consumo de RAM estable (~30 MB)
   sin importar el tamaño del archivo (ver su sección abajo).
+- **Queues** (`src/queues/`): **cola de prioridad no bloqueante**. Procesa miles
+  de tareas cediendo el Event Loop con `setImmediate`, de modo que tráfico
+  urgente (VIP) se cuela al frente sin congelar el servidor (ver su sección abajo).
 
 > Ámbito del ejemplo de tarjetas: administración de tarjetas y sus límites.
 > **No** procesa pagos ni cobros reales.
@@ -46,6 +49,9 @@ src/
 │   ├── seed.ts              Genera un CSV gigante respetando el evento `drain`
 │   ├── etl.ts               Transform que muta cada chunk (comas -> pipe)
 │   └── pipeline.ts          Ensambla read -> transform -> write con RAM estable
+├── queues/                  Ejemplo 5: cola de prioridad no bloqueante (NO Express)
+│   ├── queue.ts             PriorityQueue con despacho via setImmediate
+│   └── demo.ts              Carga 5000 tareas y mete tráfico VIP que se adelanta
 ├── app.ts                   App Express compartida (monta credit-cards y workers)
 └── server.ts                Arranque del servidor + apagado ordenado
 ```
@@ -348,6 +354,65 @@ Procesamiento completado sin crashear.
 La magia: nunca se carga el archivo entero en memoria, solo un chunk a la vez.
 Usamos `pipeline()` en lugar de encadenar `.pipe()` porque propaga mejor los
 errores y limpia los recursos al terminar.
+
+---
+
+## Ejemplo 5: Queues
+
+Demuestra cómo procesar **muchas** tareas sin estrangular el Event Loop, y cómo
+dar paso preferente a tráfico urgente. Node.js ejecuta todo en un solo hilo: un
+bucle sincrónico que recorre miles de items congela el servidor (no acepta
+nuevas peticiones mientras tanto). La solución combina dos ideas:
+
+1. **Cola de prioridad:** las tareas se ordenan por prioridad; las críticas
+   (VIP) van al frente.
+2. **Despacho no bloqueante:** tras cada tarea, el loop se reagenda con
+   `setImmediate`, cediendo el control al Event Loop entre item e item. Así el
+   hilo principal se "oxigena" y puede atender tareas nuevas que llegan a mitad
+   del procesamiento.
+
+Este ejemplo **no usa Express ni HTTP**: es un script suelto. Por eso no se
+monta en `app.ts`.
+
+### Piezas (`src/queues/`)
+
+| Archivo    | Rol                                                                      |
+|------------|--------------------------------------------------------------------------|
+| `queue.ts` | Clase `PriorityQueue`: `add` (ordena por prioridad), `start` y el loop recursivo `_processLoop` con `setImmediate`. |
+| `demo.ts`  | Carga 5000 tareas lentas (prioridad 1) y, a los 2 s, inyecta 3 VIP (prioridad 10). |
+
+> El PDF llama `app.js` al ejecutable; aquí se nombra `demo.ts` para no chocar
+> con el `src/app.ts` del servidor Express.
+
+### Cómo ejecutar
+
+```bash
+npm run queue:demo
+```
+
+### Qué observar
+
+Mientras los 5000 reportes lentos se procesan en segundo plano, a los 2 segundos
+llega el tráfico VIP y se **adelanta al instante**, antes que los miles de
+reportes que aún quedan pendientes:
+
+```
+Cargando 5000 reportes lentos...
+--- LLEGA TRAFICO VIP ---
+[URGENTE] Procesado: Transf-A
+[URGENTE] Procesado: Transf-B
+[URGENTE] Procesado: Transf-C
+Cola vaciada.
+```
+
+Las VIP se cuelan al frente gracias a dos cosas: la reordenación por prioridad
+en `add()` y el `setImmediate` del loop, que mantiene el Event Loop libre para
+recibir e intercalar el tráfico urgente sin bloquear el proceso.
+
+> Para que la demostración sea visible en máquinas rápidas, cada tarea simula un
+> pequeño esfuerzo sincrónico; si no, los 5000 reportes terminarían antes de que
+> lleguen las VIP. Además, `add()` reanuda el procesamiento si la cola se había
+> vaciado, de modo que una tarea tardía (como el tráfico VIP) siempre se atiende.
 
 ---
 
