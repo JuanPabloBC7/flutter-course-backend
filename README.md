@@ -10,12 +10,15 @@ Backend de aprendizaje con **dos ejemplos independientes** que corren sobre el
   de los **worker_threads** (cómo una carga de CPU bloquea el hilo principal
   frente a cómo delegarla a un hilo aparte lo mantiene libre).
 
-Además hay un tercer ejemplo que **no** corre sobre Express y se ejecuta aparte:
+Además hay dos ejemplos que **no** corren sobre Express y se ejecutan aparte:
 
 - **Scaling Nodes** (`src/scaling-nodes/`): escalamiento horizontal con **TCP
   puro** (módulo `net`). Varios nodos trabajadores independientes y un
   balanceador Round-Robin que reparte la carga entre ellos. Vive en `src/` como
   los demás, pero se levanta en varias terminales (ver su sección abajo).
+- **RAM Memory** (`src/ram-memory/`): procesamiento de archivos gigantes con
+  **streams** y **backpressure**, manteniendo el consumo de RAM estable (~30 MB)
+  sin importar el tamaño del archivo (ver su sección abajo).
 
 > Ámbito del ejemplo de tarjetas: administración de tarjetas y sus límites.
 > **No** procesa pagos ni cobros reales.
@@ -39,6 +42,10 @@ src/
 │   ├── worker-node.ts       Nodo trabajador TCP (net.createServer)
 │   ├── balancer.ts          Balanceador Round-Robin (proxy TCP en :8080)
 │   └── test.ts              Cliente de prueba que bombardea el proxy
+├── ram-memory/              Ejemplo 4: streams + backpressure (NO Express)
+│   ├── seed.ts              Genera un CSV gigante respetando el evento `drain`
+│   ├── etl.ts               Transform que muta cada chunk (comas -> pipe)
+│   └── pipeline.ts          Ensambla read -> transform -> write con RAM estable
 ├── app.ts                   App Express compartida (monta credit-cards y workers)
 └── server.ts                Arranque del servidor + apagado ordenado
 ```
@@ -280,6 +287,67 @@ Req 6: Respuesta desde Nodo-3003
 **Tolerancia a fallos:** si tumbas un nodo (Ctrl+C en su terminal), el
 balanceador captura el evento `error` y no se cae; el resto de nodos sigue
 atendiendo.
+
+---
+
+## Ejemplo 4: RAM Memory
+
+Demuestra cómo procesar un archivo **enorme** (gigabytes) sin reventar la
+memoria. El motor V8 limita el Heap a ~1.5 GB: cargar un archivo gigante de
+golpe (`fs.readFile`) garantiza un crash por *Out of Memory*. La solución es
+procesarlo por **fragmentos (chunks)** con **streams**, respetando la
+**contrapresión (backpressure)**: así el consumo de RAM se mantiene estático
+(~30 MB) sin importar lo que pese el archivo.
+
+Este ejemplo **no usa Express ni HTTP**: son scripts sueltos que leen y escriben
+archivos en disco. Por eso no se monta en `app.ts`.
+
+### Conceptos clave
+
+- **Chunks:** el archivo se parte en fragmentos pequeños (64 KB por defecto)
+  evaluados secuencialmente, en vez de cargarlo entero en memoria.
+- **Backpressure:** ocurre cuando se escribe más rápido de lo que el disco
+  puede procesar. `write()` devuelve `false` cuando el buffer interno se llena.
+- **Evento `drain`:** cuando el buffer se vacía, el stream emite `drain`,
+  indicando que es seguro seguir escribiendo. Así se pausa y reanuda el flujo.
+
+### Piezas (`src/ram-memory/`)
+
+| Archivo       | Rol                                                                    |
+|---------------|------------------------------------------------------------------------|
+| `seed.ts`     | Genera `big.csv` (~1 GB, 10M filas) pausando con `drain` para no reventar. |
+| `etl.ts`      | Clase `Transform` que muta cada chunk (reemplaza comas por ` \| `).    |
+| `pipeline.ts` | Une read -> transform -> write con `pipeline()` y mide la RAM cada 500 ms. |
+
+### Cómo ejecutar
+
+```bash
+# 1) Generar el CSV gigante (tarda; crea src/ram-memory/big.csv de ~1 GB)
+npm run ram:seed
+
+# 2) Procesarlo observando el consumo de RAM
+npm run ram:pipeline
+```
+
+> `big.csv` y `final.txt` están en `.gitignore` (son datos pesados generados).
+> Para liberar espacio al terminar, bórralos manualmente.
+
+### Qué observar
+
+Mientras el pipeline procesa el archivo gigante hacia `final.txt`, el profiler
+imprime el Heap usado cada 500 ms y **se mantiene estable** (decenas de MB),
+aunque el archivo pese gigabytes:
+
+```
+[+] Consumo RAM: 28.41 MB
+[+] Consumo RAM: 29.03 MB
+[+] Consumo RAM: 28.77 MB
+Procesamiento completado sin crashear.
+```
+
+La magia: nunca se carga el archivo entero en memoria, solo un chunk a la vez.
+Usamos `pipeline()` en lugar de encadenar `.pipe()` porque propaga mejor los
+errores y limpia los recursos al terminar.
 
 ---
 

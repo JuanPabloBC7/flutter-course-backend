@@ -148,3 +148,7 @@ serviceAccountKey.json
 
 # Artefactos de los workflows de agentes (planes, verificaciones, revisiones)
 .agents/
+
+# Archivos generados por el ejemplo de ram-memory (datos pesados)
+src/ram-memory/big.csv
+src/ram-memory/final.txt
