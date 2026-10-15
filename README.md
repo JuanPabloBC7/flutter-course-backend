@@ -10,6 +10,13 @@ Backend de aprendizaje con **dos ejemplos independientes** que corren sobre el
   de los **worker_threads** (cómo una carga de CPU bloquea el hilo principal
   frente a cómo delegarla a un hilo aparte lo mantiene libre).
 
+Además hay un tercer ejemplo que **no** corre sobre Express y se ejecuta aparte:
+
+- **Scaling Nodes** (`src/scaling-nodes/`): escalamiento horizontal con **TCP
+  puro** (módulo `net`). Varios nodos trabajadores independientes y un
+  balanceador Round-Robin que reparte la carga entre ellos. Vive en `src/` como
+  los demás, pero se levanta en varias terminales (ver su sección abajo).
+
 > Ámbito del ejemplo de tarjetas: administración de tarjetas y sus límites.
 > **No** procesa pagos ni cobros reales.
 
@@ -28,12 +35,17 @@ src/
 ├── workers/                 Ejemplo 2: Event Loop + worker_threads
 │   ├── heavy-cpu-worker/    Worker thread + constante de carga compartida
 │   └── endpoints/           Router de /api/v1/workers
-├── app.ts                   App Express compartida (monta ambos routers)
+├── scaling-nodes/           Ejemplo 3: escalamiento horizontal TCP (NO Express)
+│   ├── worker-node.ts       Nodo trabajador TCP (net.createServer)
+│   ├── balancer.ts          Balanceador Round-Robin (proxy TCP en :8080)
+│   └── test.ts              Cliente de prueba que bombardea el proxy
+├── app.ts                   App Express compartida (monta credit-cards y workers)
 └── server.ts                Arranque del servidor + apagado ordenado
 ```
 
-Ambos ejemplos comparten `app.ts`/`server.ts`: un solo servidor, dos routers
-montados en prefijos distintos.
+`credit-cards` y `workers` comparten `app.ts`/`server.ts`: un solo servidor, dos
+routers montados en prefijos distintos. **`scaling-nodes` es independiente**: no
+pasa por `app.ts`, son procesos TCP sueltos que se arrancan a mano.
 
 ## Requisitos
 
@@ -204,6 +216,70 @@ curl http://localhost:4000/api/v1/workers/heavy-cpu-worker
 En `npm run dev` el worker se transpila al vuelo con `ts-node`; en producción
 (`npm start`) usa el `.js` ya compilado en `dist/`. Funciona en ambos modos sin
 pasos extra.
+
+---
+
+## Ejemplo 3: Scaling Nodes
+
+Demuestra el **escalamiento horizontal**: en vez de un servidor más grande, se
+levantan varias **instancias independientes** (nodos) y un **balanceador** que
+reparte el tráfico entre ellas. A diferencia de los workers (varios hilos dentro
+de un proceso), aquí cada nodo es un **proceso aparte** con su propia memoria y
+su propio Event Loop; se comunican solo por **sockets TCP**.
+
+Este ejemplo **no usa Express ni HTTP**: es TCP puro con el módulo nativo `net`
+(balanceador de Capa 4). Por eso no se monta en `app.ts` ni responde bajo
+`/api/v1`; son procesos sueltos que se corren a mano.
+
+### Piezas (`src/scaling-nodes/`)
+
+| Archivo          | Rol                                                                 |
+|------------------|---------------------------------------------------------------------|
+| `worker-node.ts` | Nodo trabajador TCP. Toma el puerto de la CLI y simula carga (500 ms). |
+| `balancer.ts`    | Proxy TCP en `:8080`. Round-Robin (`idx % nodos`) + piping de sockets. |
+| `test.ts`        | Cliente que abre 6 conexiones al proxy para ver el reparto.         |
+
+### Cómo ejecutar (varias terminales)
+
+Levanta los 3 nodos y el balanceador, cada uno en su propia terminal:
+
+```bash
+# Terminal 1, 2 y 3: nodos trabajadores en puertos distintos
+npm run nodes:worker 3001
+npm run nodes:worker 3002
+npm run nodes:worker 3003
+
+# Terminal 4: balanceador (proxy en el puerto 8080)
+npm run nodes:balancer
+```
+
+Luego, en una 5.ª terminal, lanza la prueba de estrés:
+
+```bash
+npm run nodes:test
+```
+
+### Qué observar
+
+Las 6 peticiones se reparten de forma secuencial entre los nodos gracias al
+Round-Robin (3001 → 3002 → 3003 → 3001 → 3002 → 3003), demostrando la
+distribución de carga entre nodos independientes:
+
+```
+Req 1: Respuesta desde Nodo-3001
+Req 2: Respuesta desde Nodo-3002
+Req 3: Respuesta desde Nodo-3003
+Req 4: Respuesta desde Nodo-3001
+Req 5: Respuesta desde Nodo-3002
+Req 6: Respuesta desde Nodo-3003
+```
+
+> El orden exacto de impresión puede variar: las respuestas vuelven en paralelo
+> tras los 500 ms, pero el nodo asignado a cada petición sigue el Round-Robin.
+
+**Tolerancia a fallos:** si tumbas un nodo (Ctrl+C en su terminal), el
+balanceador captura el evento `error` y no se cae; el resto de nodos sigue
+atendiendo.
 
 ---
 

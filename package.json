@@ -12,6 +12,9 @@
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "migrate": "ts-node src/credit-cards/database/migrate.ts",
+    "nodes:worker": "ts-node src/scaling-nodes/worker-node.ts",
+    "nodes:balancer": "ts-node src/scaling-nodes/balancer.ts",
+    "nodes:test": "ts-node src/scaling-nodes/test.ts",
     "test": "jest --runInBand",
     "test:unit": "jest --runInBand card-validator",
     "typecheck": "tsc --noEmit"
